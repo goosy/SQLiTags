@@ -1,11 +1,22 @@
 Option Explicit
 
-const DBF = "D:/config/test.db"
+const DBF = "D:/config/wincc.db"
 const CNF = "D:/config/config.ini"
 Dim conn_str : conn_str = Replace("Driver={SQLite3 ODBC Driver};Database=@FSPEC@;StepAPI=;Timeout=", "@FSPEC@", DBF )
 Dim conn : Set conn = CreateObject( "ADODB.Connection" )
 
-Dim timestamp
+Dim timestamp, timezone ' 当前时间戳 时区（秒）
+Function getTimeZone()
+  Dim objWMIService, colItems, objItem
+  Set objWMIService = GetObject("winmgmts:\\.\root\cimv2")
+  Set colItems = objWMIService.ExecQuery _
+    ("Select * from Win32_OperatingSystem",,48)
+  For Each objItem in colItems
+    TimeZone = objItem.CurrentTimeZone
+  Next
+  getTimeZone = TimeZone * 60
+End Function
+timezone = getTimeZone()
 ' 设置时间
 Sub setDT(dt_str)
   ' Year(dt), Month(dt), Day(dt), Hour(dt), Minute(dt)
@@ -19,7 +30,7 @@ Sub setDT(dt_str)
     "s", _
     "1970/01/01 00:00:00", _
     FormatDateTime(dt, 2) & " " & FormatDateTime(dt, 4) & ":0" _
-  )
+  ) - timezone
 End Sub
 
 Dim tags_1I, tags_10I, tags_30I, tags_1H, tags_12H, tags_1D, tags_1M
@@ -122,7 +133,7 @@ End Sub
 Function getTags(tagname, datastr)
   Dim sSQL : sSQL = "SELECT value FROM tags WHERE " & _
     "name = '" &  tagname & _
-    "' AND time = '" & DateDiff("s", "1970/01/01 00:00:00", datastr) & "';"
+    "' AND time = '" & DateDiff("s", "1970/01/01 00:00:00", datastr) - timezone & "';"
   conn.Open conn_str
   Dim rs : Set rs = conn.Execute( sSQL )
   If NOT rs.EOF Then
@@ -200,7 +211,7 @@ For Each kv in Array( _
   Array("GR_S7/AIT0201.WIO", 0.3), _
   Array("GR_S7/AIT0201.work_F", true), _
   Array("GR_S7/Flow33.work_F", true), _
-  Array("GR_S7/Flow34.work_F", false), _
+  Array("GR_S7/Flow34.work_F", true), _
   Array("GR_S7/Flow33.mass", 19588.7), _
   Array("GR_S7/Flow33.density", 98.3), _
   Array("GR_S7/Flow33.temperature", 38.2), _
@@ -228,4 +239,4 @@ save1H()
 save12H()
 save1D()
 save1M()
-WScript.Echo getTags("MF33_M", "2022-9-10 15:45")
+WScript.Echo getTags("MF33_M", "2022-9-10 23:45")
