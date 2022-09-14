@@ -114,11 +114,15 @@ Sub init
     Return
   End If
   Const ForReading = 1
-  Dim INIFile : Set INIFile = fso.OpenTextFile(CONF, ForReading)
-
-  Do While Not INIFile.AtEndOfStream
+  Dim stm : Set stm = CreateObject("Adodb.Stream")
+  stm.Type = 2 ' adTypeText
+  stm.mode = 3 ' adModeRead
+  stm.charset = "utf-8"
+  stm.Open
+  stm.loadfromfile CONF 
+  Do Until stm.EOS
     Dim section, comment, strLine
-    strLine = Trim(INIFile.Readline)
+    strLine = Trim(stm.ReadText(-2))
     If strLine <> "" Then
       If Left(strLine, 1) = ";" OR Left(strLine, 1) = "#" Then
         comment = Trim(Mid(strLine, 2, Len(strLine) - 1))
