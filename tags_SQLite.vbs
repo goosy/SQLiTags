@@ -1,10 +1,10 @@
 Option Explicit
+Const DBF = "D:/config/wincc.db"
+Const CONF = "D:/config/config.ini"
 
-const DBF = "D:/config/wincc.db"
-const CONF = "D:/config/config.ini"
 Dim conn_str : conn_str = Replace("Driver={SQLite3 ODBC Driver};Database=@FSPEC@;StepAPI=;Timeout=", "@FSPEC@", DBF )
 Dim conn : Set conn = CreateObject( "ADODB.Connection" )
-Dim timestamp, timezone
+Dim timestamp, timezone, Y, M, D, H, N, W
 
 ' get timezone on startup
 Sub getTimeZone()
@@ -27,48 +27,61 @@ Sub setDT(dt_str)
   Else
     dt = CDate(dt_str)
   End If
+  Y = Year(dt)
+  M = Month(dt)
+  D = Day(dt)
+  H = Hour(dt)
+  N = Minute(dt)
+  W = Weekday(dt, vbMonday)
   timestamp = DateDiff( _
     "s", _
-    "1970/01/01 00:00:00", _
-    FormatDateTime(dt, 2) & " " & FormatDateTime(dt, 4) & ":0" _
+    "1970-01-01 00:00:00", _
+    Y & "-" & M & "-" & D & " " & H & ":" & N & ":0" _
   ) - timezone
 End Sub
 
-Dim tags_1N, tags_10N, tags_30N, tags_1H, tags_12H, tags_1D, tags_1M
+Dim tags_1N, tags_10N, tags_30N, tags_1H, tags_2HO, tags_2HE, tags_12H, tags_1D, tags_1M, WinCCTags
 Set tags_1N = CreateObject("System.Collections.ArrayList")
 Set tags_10N = CreateObject("System.Collections.ArrayList")
 Set tags_30N = CreateObject("System.Collections.ArrayList")
 Set tags_1H = CreateObject("System.Collections.ArrayList")
+Set tags_2HO = CreateObject("System.Collections.ArrayList")
+Set tags_2HE = CreateObject("System.Collections.ArrayList")
 Set tags_12H = CreateObject("System.Collections.ArrayList")
 Set tags_1D = CreateObject("System.Collections.ArrayList")
 Set tags_1M = CreateObject("System.Collections.ArrayList")
+Set WinCCTags = CreateObject("Scripting.Dictionary")
 
 ' parse line includes '=' in ini file
 Function parse_line(lineText)
-  Dim tag, pair, tagdesc
+  Dim item, pair, tagdesc, tagname, tag
   pair = Split(lineText, "=", 2)
   If ubound(pair) = 1 Then
     tagdesc = Split(Trim(pair(1)), ",", 3)
     If ubound(tagdesc) = 2 Then
-      Set tag = CreateObject("Scripting.Dictionary")
-      tag.Add "name", Trim(pair(0))
-      tag.Add "tagname", tagdesc(0)
-      tag.Add "valid", tagdesc(1)
+      Set item = CreateObject("Scripting.Dictionary")
+      item.Add "name", Trim(pair(0))
+      item.Add "tagname", tagdesc(0)
+      item.Add "valid", tagdesc(1)
       select case tagdesc(2)
         case "1minute"
-          tags_1N.add tag
+          tags_1N.add item
         case "10minute"
-          tags_10N.add tag
+          tags_10N.add item
         case "30minute"
-          tags_30N.add tag
+          tags_30N.add item
+        case "2hoursO"
+          tags_2HO.add item
+        case "2hoursE"
+          tags_2HE.add item
         case "12hours"
-          tags_12H.add tag
+          tags_12H.add item
         case "1day"
-          tags_1D.add tag
+          tags_1D.add item
         case "1month"
-          tags_1M.add tag
+          tags_1M.add item
         case else
-          tags_1H.add tag
+          tags_1H.add item
       end select
     End If
   End If
@@ -116,34 +129,60 @@ Sub init
       End If
     End If
   Loop
+  stm.Close
+  Set stm = Nothing
+End Sub
 
-  INIFile.Close
-  Set INIFile = Nothing
+Sub saveTag(name, value, valid)
+  Dim tagvalue, sSQL
+  If valid.Read = 1 Then
+    sSQL = "INSERT OR IGNORE INTO tags VALUES (" & timestamp & ", '" & name & "', " & value & ");"
+    On Error Resume Next
+    conn.Execute sSQL
+    If Err <> 0 Then
+      HMIRuntime.Trace "error on execute: " & sSQL & vbCrLf
+    Else
+      HMIRuntime.Trace "save: " & timestamp & ", '" & name & "', " & value & vbCrLf
+    End If
+    On Error GoTo 0
+  End If
 End Sub
 
 ' archive tags to sqlite
 Sub saveTags(tags)
-  Dim tag, valid, tagvalue, sSQL
+  Dim tag, tagname, tagvalue, valid, item
   On Error Resume Next
   conn.Open conn_str
   If Err <> 0 Then
     HMIRuntime.Trace "can't open DB: " & Err.Description
-  Else
-    For Each tag In tags
-      tagvalue = HMIRuntime.Tags(tag("tagname")).Read
-      If HMIRuntime.Tags(tag("valid")).Read = 1 Then
-        sSQL = "INSERT OR IGNORE INTO tags VALUES (" & timestamp & ", '" & tag("name") & "', " & tagvalue & ");"
-        conn.Execute sSQL
-        If Err <> 0 Then
-          HMIRuntime.Trace "error on execute: " & sSQL & vbCrLf
-        Else
-          HMIRuntime.Trace "save: " & timestamp & ", '" & tag("name") & "', " & tagvalue & vbCrLf
-        End If
-      End If
-    Next
+    conn.Close
+    Return
   End If
-  conn.Close
   On Error GoTo 0
+
+  For Each item In tags
+    tagname = item("tagname")
+    valid = item("valid")
+    If WinCCTags.Exists(tagname) AND WinCCTags.Exists(valid) Then
+      tagvalue = WinCCTags(item("tagname")).Read
+      saveTag item("name"), tagvalue, WinCCTags(valid)
+    Else
+      Dim oTag : Set oTag = HMIRuntime.Tags(tagname)
+      Dim oTagV : Set oTagV = HMIRuntime.Tags(valid)
+      tagvalue = oTag.Read
+      oTagV.Read ' test tag.QualityCode
+      If 28 = oTag.QualityCode OR 28 = oTagV.QualityCode Then
+        tags.Remove item ' remove config item for no such tag
+      Else
+        WinCCTags.Add tagname, oTag
+        If NOT WinCCTags.Exists(valid) Then
+          WinCCTags.Add valid, oTagV
+        End If
+        saveTag item("name"), tagvalue, oTagV
+      End If
+    End If
+  Next
+  conn.Close
 End Sub
 
 ' get historical data
@@ -152,24 +191,30 @@ Function getHisTag(tagname, datastr)
   Dim sSQL : sSQL = "SELECT value FROM tags WHERE " & _
     "name = '" &  tagname & _
     "' AND time = '" & timestamp & "';"
+
   On Error Resume Next
   conn.Open conn_str
   If Err <> 0 Then
     HMIRuntime.Trace "can't open DB: " & Err.Description & vbCrLf
+    conn.Close
+    getHisTag = -100000.0
+    Return
+  End If
+  On Error GoTo 0
+
+  On Error Resume Next
+  Dim rs : Set rs = conn.Execute( sSQL )
+  If Err <> 0 Then
+    HMIRuntime.Trace "error on execute: " & sSQL & vbCrLf
   Else
-    Dim rs : Set rs = conn.Execute( sSQL )
-    If Err <> 0 Then
-      HMIRuntime.Trace "error on execute: " & sSQL & vbCrLf
+    If NOT rs.EOF Then
+      Dim f : For Each f In rs.Fields
+        getHisTag = f.value
+      Next
     Else
-      If NOT rs.EOF Then
-        Dim f : For Each f In rs.Fields
-          getHisTag = f.value
-        Next
-      Else
-        getHisTag = -100000.0
-      End If
-      HMIRuntime.Trace "read: " & timestamp & " '" & tagname & "' " & getHisTag & vbCrLf
+      getHisTag = -100000.0
     End If
+    HMIRuntime.Trace "read: " & timestamp & " '" & tagname & "' " & getHisTag & vbCrLf
   End If
   conn.Close
   On Error GoTo 0
@@ -177,31 +222,34 @@ End Function
 
 ' archive function for WinCC actions
 Sub save1N()
-  setDT("now")
+  setDT Now
   saveTags(tags_1N)
 End Sub
 Sub save10N()
-  setDT("now")
+  setDT Now
   saveTags(tags_10N)
-End Sub
-Sub save30N()
-  setDT("now")
-  saveTags(tags_30N)
+  If N = 30 OR N = 0 Then
+    saveTags(tags_30N)
+  End If
 End Sub
 Sub save1H()
-  setDT("now")
+  setDT Now
   saveTags(tags_1H)
+  If H MOD 2 = 0 Then
+    saveTags(tags_2HE)
+  Else
+    saveTags(tags_2HO)
+  End If
 End Sub
 Sub save12H()
-  setDT("now")
+  setDT Now
   saveTags(tags_12H)
-End Sub
-Sub save1D()
-  setDT("now")
-  saveTags(tags_1D)
+  If H = 0 Then
+    saveTags(tags_1D)
+  End If
 End Sub
 Sub save1M()
-  setDT("now")
+  setDT Now
   saveTags(tags_1M)
 End Sub
 
@@ -234,6 +282,7 @@ Class HMITags
     Public rawStr
     Private Sub Class_Initialize
         rawStr = ""
+        QualityCode = 80
     End Sub
     Public Function Read()
         Read = Value
@@ -241,6 +290,7 @@ Class HMITags
     Public Function Write(v)
         Value = v
     End Function
+    Public QualityCode
 End Class
 
 Dim HMIRuntime : set HMIRuntime = new Runtime
@@ -252,19 +302,25 @@ For Each kv in Array( _
   Array("GR_S7/AIT0201.WIO", 0.3), _
   Array("GR_S7/AIT0201.work_F", 1), _
   Array("GR_S7/Flow33.work_F", 1), _
+  Array("GR_S7/Flow33.work_F1", 1), _
   Array("GR_S7/Flow34.work_F", 1), _
+  Array("GR_S7/Flow34.work_F1", 1), _
   Array("GR_S7/Flow33.mass", 19588.7), _
   Array("GR_S7/Flow33.density", 98.3), _
   Array("GR_S7/Flow33.temperature", 38.2), _
   Array("GR_S7/Flow33.volume", 26555.2), _
   Array("GR_S7/Flow33.volume_flow_rate", 21555.2), _
   Array("GR_S7/Flow33.mass_flow_rate", 38.2), _
+  Array("GR_S7/Flow33.oil_mass", 33553.2), _
+  Array("GR_S7/Flow33.water_mass", 22553.2), _
   Array("GR_S7/Flow34.mass", 69553.2), _
   Array("GR_S7/Flow34.density", 98.2), _
   Array("GR_S7/Flow34.temperature", 38.2), _
   Array("GR_S7/Flow34.volume", 35668.2), _
   Array("GR_S7/Flow34.volume_flow_rate", 33668.2), _
-  Array("GR_S7/Flow34.mass_flow_rate", 38.2) _
+  Array("GR_S7/Flow34.mass_flow_rate", 38.2), _
+  Array("GR_S7/Flow34.oil_mass", 33553.2), _
+  Array("GR_S7/Flow34.water_mass", 22553.2) _
 )
   Dim HMITag
   set HMITag = new HMITags
@@ -275,9 +331,7 @@ Next
 init
 save1N()
 save10N()
-save30N()
 save1H()
 save12H()
-save1D()
 save1M()
-getHisTag "MF33_M", "2022-9-10 23:45"
+getHisTag "MF33_M", "2022-9-15 4:15"

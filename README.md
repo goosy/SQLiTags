@@ -6,7 +6,7 @@
 
 1. 在WinCC主机上安装32位 SQLite ODBC Driver 程序，[下载页面](http://www.ch-werner.de/sqliteodbc/)
 2. 将编译好的模块 tags_sqlite.bmo 复制到 WinCC 项目的 ScriptLib 文件夹下。
-3. 按照需要的保存周期，复制对应编译好的动作文件 saveTags*.bac 至 WinCC 项目的 ScriptAct 文件夹下。
+3. 按照需要的保存周期，复制对应编译好的动作文件 saveTags*.bac 至 WinCC 项目的 ScriptAct 文件夹下。见记录周期表格
 4. 建立 D:\config\config.ini 配置文件，指定哪些变量以何种方式保存到数据库中。
 5. WinCC 项目运行后，自动保存指定数值到数据库 D:\config\wincc.db 中。可用第三方工具读取数据库。
 
@@ -25,26 +25,37 @@ tags_sqlite.bmo 模块同时也提供 API(VBS)，可以在 WinCC 项目中根据
 * 本程序使用 `[tags]` 节指定WinCC要保存到sqlite数据库的变量
 * `[tags]` 节下属每行是变量定义，定义一个WinCC变量如果保存到数据库中
 
-### 变量定义格式
+### [tags]节变量定义格式
 
 语法为：
 `[归档变量名]=[WinCC变量],[有效性变量],[记录周期]`
 
-* 归档变量名: 用在SQLite中的变量名称，SQLite单独使用变量名的原因：
-  1. SQL中必须是标准变量标识符，WinCC变量名不合要求
-  2. 归档变量能维持独立性，这样源WinCC变量名即使变化也不影响SQLite历史数据
-* WinCC变量: WinCC变量管理中的名称
-* 有效性变量: 也是 WinCC 变量，用来指示该变量值否有效。比如modbus的通讯正常指示变量。
-* 记录周期: 可以填写的值
-  * 1minute (不建议使用1minute，由于WinCC无法定时整分钟，会导致误差)
-  * 10minute
-  * 30minute
-  * 1hour
-  * 12hours
-  * 1day
-  * 1month
+归档变量名: 用在SQLite中的变量名称，SQLite单独使用变量名的原因：
 
-### 例子
+1. SQL中必须是标准变量标识符，WinCC变量名不合要求
+2. 归档变量能维持独立性，这样源WinCC变量名即使变化也不影响SQLite历史数据
+
+WinCC变量: WinCC变量管理中的名称
+
+有效性变量: 也是 WinCC 变量，用来指示该变量值否有效。比如modbus的通讯正常指示变量。
+
+记录周期:
+
+| 周期值      | 对应动作          | 描述                                    |
+| -------- | ------------- | ------------------------------------- |
+| 1minute  | saveTagsPer1N | 1分钟 (不建议使用1minute，WinCC无法整分钟定时动作导致误差) |
+| 10minute | saveTagsOn10N | 00:00 10:00 20:00 30:00 40:00 50:00   |
+| 30minute | saveTagsOn10N | 半小时                                   |
+| 1hour    | saveTagsOn1H  | 整点                                    |
+| 2hoursO  | saveTagsOn1H  | 奇数整点                                  |
+| 2hoursE  | saveTagsOn1H  | 偶数整点                                  |
+| 12hours  | saveTagsOn12H | 每日 00:00 与 12:00                      |
+| 1day     | saveTagsOn12H | 每日 00:00                              |
+| 1month   | saveTagsOn1M  | 每月1日 00:00                            |
+
+注：同一个WinCC变量，如果多个时间周期存档需求，只需定义最小周期那一个即可
+
+### [tags]节例子
 
 ```ini
 [tags]
