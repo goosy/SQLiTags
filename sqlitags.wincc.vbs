@@ -113,7 +113,6 @@ Sub init
     HMIRuntime.Trace  "configure file " & CONF & " not exists!" & vbCrLf
     Return
   End If
-  Const ForReading = 1
   Dim stm : Set stm = CreateObject("Adodb.Stream")
   stm.Type = 2 ' adTypeText
   stm.mode = 3 ' adModeRead
