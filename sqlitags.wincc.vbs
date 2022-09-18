@@ -60,9 +60,9 @@ Function parse_line(lineText)
     tagdesc = Split(Trim(pair(1)), ",", 3)
     If ubound(tagdesc) = 2 Then
       Set item = CreateObject("Scripting.Dictionary")
-      item.Add "name", Trim(pair(0))
+      item.Add "varname", Trim(pair(0))
       item.Add "tagname", tagdesc(0)
-      item.Add "valid", tagdesc(1)
+      item.Add "validname", tagdesc(1)
       select case tagdesc(2)
         case "1minute"
           tags_1N.add item
@@ -153,7 +153,7 @@ End Sub
 
 ' archive tags to sqlite
 Sub saveTags(tags)
-  Dim tag, tagname, tagvalue, valid, item
+  Dim oTag, tagname, tagvalue, oTagV, validname, item
   On Error Resume Next
   conn.Open conn_str
   If Err <> 0 Then
@@ -165,23 +165,23 @@ Sub saveTags(tags)
 
   For Each item In tags
     tagname = item("tagname")
-    valid = item("valid")
-    If WinCCTags.Exists(tagname) AND WinCCTags.Exists(valid) Then
-      tagvalue = WinCCTags(item("tagname")).Read
-      saveTag item("name"), tagvalue, WinCCTags(valid)
+    validname = item("validname")
+    If WinCCTags.Exists(tagname) AND WinCCTags.Exists(validname) Then
+      tagvalue = WinCCTags(tagname).Read
+      saveTag item("varname"), tagvalue, WinCCTags(validname)
     Else
-      Dim oTag : Set oTag = HMIRuntime.Tags(tagname)
-      Dim oTagV : Set oTagV = HMIRuntime.Tags(valid)
+      Set oTag = HMIRuntime.Tags(tagname)
+      Set oTagV = HMIRuntime.Tags(validname)
       tagvalue = oTag.Read
       oTagV.Read ' test tag.QualityCode
       If 28 = oTag.QualityCode OR 28 = oTagV.QualityCode Then
         tags.Remove item ' remove config item for no such tag
       Else
         WinCCTags.Add tagname, oTag
-        If NOT WinCCTags.Exists(valid) Then
-          WinCCTags.Add valid, oTagV
+        If NOT WinCCTags.Exists(validname) Then
+          WinCCTags.Add validname, oTagV
         End If
-        saveTag item("name"), tagvalue, oTagV
+        saveTag item("varname"), tagvalue, oTagV
       End If
     End If
   Next
@@ -189,10 +189,10 @@ Sub saveTags(tags)
 End Sub
 
 ' get historical data
-Function getHisTag(tagname, datastr)
+Function getHisTag(varname, datastr)
   Dim timestamp : timestamp = DateDiff("s", "1970/01/01 00:00:00", datastr) - timezone
   Dim sSQL : sSQL = "SELECT value FROM tags WHERE " & _
-    "name = '" &  tagname & _
+    "name = '" &  varname & _
     "' AND time = '" & timestamp & "';"
 
   On Error Resume Next
@@ -217,7 +217,7 @@ Function getHisTag(tagname, datastr)
     Else
       getHisTag = -100000.0
     End If
-    HMIRuntime.Trace "read: " & timestamp & " '" & tagname & "' " & getHisTag & vbCrLf
+    HMIRuntime.Trace "read: " & timestamp & " '" & varname & "' " & getHisTag & vbCrLf
   End If
   conn.Close
   On Error GoTo 0
