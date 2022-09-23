@@ -4,27 +4,33 @@
 
 ## 安装方法
 
-以下需要在WinCC主机上安装32位和64位 SQLite ODBC Driver 程序。[下载页面](http://www.ch-werner.de/sqliteodbc/)
+1. 在WinCC主机上安装32位和64位 SQLite ODBC Driver 程序。[下载页面](http://www.ch-werner.de/sqliteodbc/)(SQLite ODBC Driver 必须是32位，即使是64位操作系统。因为WinCC本身是32位应用程序。)
+1. 将本项目下 sqlitags.wsh.js、run.vbs 和 所有的 *.cmd 文件复制到WinCC主机的 D:\config\ 中。
+1. 建立并配置 D:\config\config.ini 文件，指定哪些变量以何种方式保存到数据库中。
+1. 在WinCC中配置启动脚本（也可以在激活WinCC后手动启动脚本）
+1. 激活WinCC
 
-SQLite ODBC Driver 必须是32位，即使是64位操作系统。因为WinCC本身是32位应用程序。
+### 在WinCC中配置启动脚本
 
-### 在WinCC中安装
+在 WinCC 项目中启动  sqlitags.wsh.js，可以用以下二种办法之一：
 
-1. 将编译好的模块 tags_sqlite.bmo 复制到 WinCC 项目的 ScriptLib 文件夹下。
-2. 按照需要的保存周期，复制对应编译好的动作文件 saveTags*.bac 至 WinCC 项目的 ScriptAct 文件夹下。见记录周期表格
-3. 建立 D:\config\config.ini 配置文件，指定哪些变量以何种方式保存到数据库中。
-4. WinCC 项目运行激活后，即可自动保存指定数值到数据库 D:\config\wincc.db 中。可用第三方工具读取数据库。
+1. 在定时动作中加入以下代码：
 
-tags_sqlite.bmo 模块同时也提供 API(VBS)，可以在 WinCC 项目中根据需要取得指定时间和变量的历史值。
+   ```VBScript
+   Dim ws : Set ws = CreateObject("WScript.Shell")
+   ws.CurrentDirectory = "D:\config"
+   ws.Run "C:\WINDOWS\SysWOW64\CScript.exe D:\config\run.vbs start /b", 0
+   ```
 
-### 在WSH中安装
+1. 在WinCC项目启动中加入`C:\WINDOWS\SysWOW64\CScript.exe D:\config\run.vbs restart /b`
 
-1. 将 sqlitags.wsh.js 和 所有的 *.cmd 文件复制到WinCC目标主机目录下，建议放在 D:\config\ 中。
-2. 保证WinCC已激活
-3. 配置好 D:\config\config.ini 文件，指定哪些变量以何种方式保存到数据库中。。（其它位置需要）
-4. 双击 "start.cmd" 运行即可。
+### 在WSH中手动启动
 
-### 文件位置
+激活WinCC后运行 `./start.cmd /b`。
+
+### 说明
+
+随时可以用 `./list.cmd` 查看是否变量归档在运行。
 
 正常情况下按默认位置放置配置文件和生成数据库文件。如果因没有D盘等原因要修改文件位置，可以：
 
@@ -77,13 +83,13 @@ WinCC变量: WinCC变量管理中的名称
 
 ; ## 稠油质量流量计工程用
 ; 1#混合液质量累计
-MF33_M=GR_S7/Flow33.mass,GR_S7/Flow33.work_F,10minute
+MF33_M=GR_S7/Flow33.mass,GR_S7/Flow33.work_F,10minutes
 ; 1#混合液体积累计
-MF33_V=GR_S7/Flow33.volume,GR_S7/Flow33.work_F,10minute
+MF33_V=GR_S7/Flow33.volume,GR_S7/Flow33.work_F,10minutes
 ; 1#纯油质量累积
-MF33_O=GR_S7/Flow33.oil_mass,GR_S7/Flow33.work_F1,10minute
+MF33_O=GR_S7/Flow33.oil_mass,GR_S7/Flow33.work_F1,10minutes
 ; 1#纯水质量累积
-MF33_W=GR_S7/Flow33.water_mass,GR_S7/Flow33.work_F1,10minute
+MF33_W=GR_S7/Flow33.water_mass,GR_S7/Flow33.work_F1,10minutes
 ; 2#混合液质量累计
 MF34_M=GR_S7/Flow34.mass,GR_S7/Flow34.work_F,1hour
 ; 2#混合液体积累计
@@ -92,6 +98,50 @@ MF34_V=GR_S7/Flow34.volume,GR_S7/Flow34.work_F,1hour
 MF34_O=GR_S7/Flow34.oil_mass,GR_S7/Flow34.work_F1,1hour
 ; 2#纯水质量累积
 MF34_W=GR_S7/Flow34.water_mass,GR_S7/Flow34.work_F1,1hour
+```
+
+### [OS] 节变量定义格式
+
+[OS] 节为运算变量，运算后的结果保存至WinCC变量中。
+
+只有WSH版的 SQLiTags 脚本支持 [OS] 节，同时只支持数值类型变量。
+
+与tags节相反，本节定义了需要计算表达式后存入WinCC变量，表达式中可能有SQLite读取的归档历史数值
+
+格式：`WinCC变量=表达式,生成时间间隔`
+
+表达式中：
+
+* 变量用{}括起来，即可以是归档变量，也可以是WinCC当前变量
+* {Y} {M} {D} {H} {N} {W} 代表WinCC系统的当前年月日时分周等数值
+* {WinCC_tag_name} 非上述日期变量则代表WinCC变量值
+* {DB_tag_name,年,月,日,时,分,秒} 带 `,` 分隔的变量，为归档变量，含日期部分
+  * 日期的各部分，支持对应日期变量 Y M D H N S 开头的加减运算
+  * 天是以1开始，0代表上个月的最后一天
+  * 其它日期部分用-1代表上个周期的最后时刻，比如-1分代表上一小时的59分。
+  * 例：{tname,Y,M,0,23,59,0}表示上个月最后一天的23:59
+* 除归档变量的日期部分外，`{}`中不得有运算符
+
+生成时间间隔可用的值为：
+
+* 1minute
+* 10minute
+* 30minute
+* 1hour
+* 2hoursO 奇数整点
+* 2hoursE 偶数整点
+* 12hours
+* 1day
+* 1month
+
+### [OS]节例子
+
+```ini
+[OS]
+;混合液质量差（混合液质量累计值的差值，单位t）
+Flow33_mass_diff_1N={MF33_M,Y,M,D,H,N-N%10,0}-{MF33_M,Y,M,D,H,N-1-N%10,0},10minutes
+Flow33_mass_diff_2H={MF33_M,Y,M,D,H,0,0}-{MF33_M,Y,M,D,H-2,0,0},2hoursE
+Flow33_mass_diff_1D={MF33_M,Y,M,D,0,0,0}-{MF33_M,Y,M,D-1,0,0,0},1day
 ```
 
 ## API
